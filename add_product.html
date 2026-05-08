@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page-card">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Delete Supplier</h1>
+      <p class="page-subtitle">
+        
+      </p>
+    </div>
+
+    <div class="page-actions">
+      <a class="btn btn-secondary" href="{{ url_for('suppliers') }}">Back</a>
+    </div>
+  </div>
+
+  <hr class="sep">
+
+  <div class="info-box">
+    <div><b>ID:</b> {{ supplier.SupplierID }}</div>
+    <div><b>Name:</b> {{ supplier.Name }}</div>
+    <div><b>Contact:</b> {{ supplier.ContactPerson }}</div>
+    <div><b>Phone:</b> {{ supplier.Phone }}</div>
+    <div><b>Email:</b> {{ supplier.Email }}</div>
+    <div><b>Address:</b> {{ supplier.Address }}</div>
+  </div>
+
+  <div class="warn">
+    
+  </div>
+
+  <div class="actions-row">
+    <!-- IMPORTANT: this must match your route name + param -->
+    <form method="POST" action="{{ url_for('confirm_delete_supplier', supplier_id=supplier.SupplierID) }}">
+      <button class="btn btn-danger" type="submit"
+              onclick="return confirm('Delete this supplier permanently?')">
+        
+      </button>
+    </form>
+
+    <a class="btn btn-secondary" href="{{ url_for('suppliers') }}">Cancel</a>
+  </div>
+</div>
+
+<style>
+.page-card{
+  max-width:900px;margin:30px auto;padding:22px;border-radius:14px;
+  background:rgba(20, 35, 70, 0.55);
+  border:1px solid rgba(255,255,255,0.08);
+}
+.page-header{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}
+.page-title{margin:0;color:#fff;font-size:30px;font-weight:900}
+.page-subtitle{margin:6px 0 0;color:#dbe4ff}
+.page-actions{display:flex;gap:10px;align-items:center}
+.sep{border:none;border-top:1px solid rgba(255,255,255,0.12);margin:16px 0}
+
+.info-box{
+  display:grid;gap:10px;
+  padding:16px;border-radius:12px;
+  border:1px solid rgba(255,255,255,0.10);
+  background:rgba(255,255,255,0.04);
+  color:#e9eeff;
+}
+.warn{
+  margin-top:14px;
+  padding:12px 14px;
+  border-radius:12px;
+  background:rgba(255, 70, 70, 0.12);
+  border:1px solid rgba(255, 70, 70, 0.35);
+  color:#fff;
+}
+
+.actions-row{display:flex;gap:12px;align-items:center;margin-top:18px}
+
+.btn{display:inline-block;padding:10px 14px;border-radius:999px;font-weight:800;
+  text-decoration:none;border:1px solid transparent;cursor:pointer}
+.btn-secondary{background:rgba(255,255,255,0.08);color:#fff;border-color:rgba(255,255,255,0.12)}
+.btn-danger{background:rgba(255,70,70,0.18);color:#fff;border-color:rgba(255,70,70,0.4)}
+</style>
+
+{% endblock %}

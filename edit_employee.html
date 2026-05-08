@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="card">
+  <h2>New Supplier Order</h2>
+
+  <form method="POST">
+    <label>Supplier</label>
+    <select name="supplier_id" required>
+      <option value="">-- Select supplier --</option>
+      {% for s in suppliers %}
+        <option value="{{ s.SupplierID }}">{{ s.Name }}</option>
+      {% endfor %}
+    </select>
+
+    <label>Order Date</label>
+    <input type="date" name="order_date" required>
+
+    <label>Expected Delivery Date</label>
+    <input type="date" name="expected_date">
+
+    <label>Status</label>
+    <select name="status">
+      <option value="PENDING">PENDING</option>
+      <option value="SENT">SENT</option>
+      <option value="RECEIVED">RECEIVED</option>
+      <option value="CANCELLED">CANCELLED</option>
+    </select>
+
+    <hr>
+
+    <h3>Order Lines</h3>
+    <div id="lines">
+      <div class="line">
+      <label>Product</label>
+      <select name="product_id[]" required>
+      <option value="">-- Select product --</option>
+       {% for p in products %}
+      <option value="{{ p.ProductID }}">{{ p.ProductID }} - {{ p.Name }}</option>
+       {% endfor %}
+</select>
+
+
+
+        <label>Ordered Qty</label>
+        <input type="number" name="ordered_qty[]" min="1" required>
+
+        <label>Unit Cost</label>
+        <input type="number" name="unit_cost[]" step="0.01" min="0" required>
+        <hr>
+      </div>
+    </div>
+
+    <button type="button" class="btn btn-secondary" onclick="addLine()">+ Add Line</button>
+    <button type="submit" class="btn btn-primary">Create</button>
+    <a class="btn btn-secondary" href="{{ url_for('purchasing_orders') }}">Cancel</a>
+  </form>
+</div>
+
+<script>
+function addLine(){
+  const lines = document.getElementById("lines");
+  const first = lines.querySelector(".line");
+  const copy = first.cloneNode(true);
+  copy.querySelectorAll("input").forEach(i => i.value = "");
+  lines.appendChild(copy);
+}
+</script>
+
+{% endblock %}

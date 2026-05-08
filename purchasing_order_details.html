@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% set active_page = "dashboard" %}
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">Supermarket Dashboard</h1>
+    <p class="page-subtitle">
+        Overview of the POS activity and quick links to main modules.
+    </p>
+</div>
+
+<div class="dashboard-grid">
+    <div class="dash-card">
+        <h3>Products</h3>
+        <p>Manage items, prices, stock levels and product status.</p>
+        <a href="{{ url_for('products') }}" class="dash-link">Go to products →</a>
+    </div>
+
+    <div class="dash-card">
+        <h3>Suppliers</h3>
+        <p>Track suppliers, lead times and minimum order quantities.</p>
+        <a href="{{ url_for('suppliers') }}" class="dash-link">Go to suppliers →</a>
+    </div>
+
+    <div class="dash-card">
+        <h3>Customers</h3>
+        <p>View customer details and loyalty IDs, edit or remove records.</p>
+        <a href="{{ url_for('customers') }}" class="dash-link">Go to customers →</a>
+    </div>
+</div>
+
+<div class="page-footer">
+    Supermarket POS • dashboard
+</div>
+{% endblock %}

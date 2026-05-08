@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h2>New Sale / Transaction</h2>
+<p class="text-muted">Create a new customer transaction</p>
+
+<form method="POST">
+  <div style="margin-bottom:12px;">
+    <label>Customer</label>
+    <select name="customer_id" class="form-control" required>
+      <option value="">-- Select Customer --</option>
+      {% for c in customers %}
+        <option value="{{ c[0] }}">{{ c[1] }} {{ c[2] }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div style="margin-bottom:12px;">
+    <label>Cashier</label>
+    <select name="cashier_id" class="form-control" required>
+      <option value="">-- Select Cashier --</option>
+      {% for e in cashiers %}
+        <option value="{{ e[0] }}">{{ e[1] }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div style="margin-bottom:12px;">
+    <label>Payment Method</label>
+    <select name="payment_method" class="form-control" required>
+      <option value="">-- Choose Method --</option>
+      <option value="Cash">Cash</option>
+      <option value="Card">Card</option>
+      <option value="Wallet">Wallet</option>
+    </select>
+  </div>
+
+  <div style="margin-bottom:12px;">
+    <label>Status</label>
+    <select name="status" class="form-control">
+      <option value="Completed" selected>Completed</option>
+      <option value="Pending">Pending</option>
+      <option value="Cancelled">Cancelled</option>
+    </select>
+  </div>
+
+  <button class="btn btn-dark-yellow btn-sm" type="submit">Save Transaction</button>
+  <a class="btn btn-outline btn-sm" href="{{ url_for('sales') }}">Cancel</a>
+</form>
+
+{% endblock %}

@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h2>Sales</h2>
+<p class="text-muted">All saved transactions.</p>
+
+<p style="margin-bottom: 15px;">
+  <a href="{{ url_for('new_sale') }}" class="btn btn-dark-yellow btn-sm">+ New Transaction</a>
+</p>
+
+<div class="table-wrapper">
+  <table class="table table-striped table-hover table-sm align-middle">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Date/Time</th>
+        <th>Customer</th>
+        <th>Cashier</th>
+        <th>Payment</th>
+        <th>Total</th>
+        <th>Status</th>
+        <th>Details</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for s in sales %}
+      <tr>
+        <td>{{ s[0] }}</td>
+        <td>{{ s[1] }}</td>
+        <td>{{ s[2] or "-" }}</td>
+        <td>{{ s[3] or "-" }}</td>
+        <td>{{ s[4] or "-" }}</td>
+        <td>{{ s[5] }}</td>
+        <td>{{ s[6] }}</td>
+        <td>
+          <a class="btn btn-dark-yellow btn-sm"
+             href="{{ url_for('sale_items', transaction_id=s[0]) }}">View</a>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}

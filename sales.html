@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Admin Dashboard{% endblock %}
+{% block content %}
+
+<h1 style="margin-top:0;">Admin Dashboard</h1>
+<p style="margin-top:-6px; opacity:.85;">
+  Welcome, {{ session.get('full_name') }}. You have full access to manage the supermarket system.
+</p>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-top:18px;">
+  <a class="card" style="text-decoration:none;" href="{{ url_for('products') }}">
+    <h3 style="margin:0 0 6px;">Products</h3>
+    <p style="margin:0;opacity:.85;">Add / edit / delete products, update price, category, and status.</p>
+  </a>
+
+  <a class="card" style="text-decoration:none;" href="{{ url_for('suppliers') }}">
+    <h3 style="margin:0 0 6px;">Suppliers</h3>
+    <p style="margin:0;opacity:.85;">Manage supplier details and contact information.</p>
+  </a>
+
+  <a class="card" style="text-decoration:none;" href="{{ url_for('purchasing_orders') }}">
+    <h3 style="margin:0 0 6px;">Purchasing</h3>
+    <p style="margin:0;opacity:.85;">Create supplier orders, receive items, and update order status.</p>
+  </a>
+
+  <a class="card" style="text-decoration:none;" href="{{ url_for('inventory') }}">
+    <h3 style="margin:0 0 6px;">Inventory</h3>
+    <p style="margin:0;opacity:.85;">View stock and record inventory adjustments with reasons.</p>
+  </a>
+
+  <a class="card" style="text-decoration:none;" href="{{ url_for('employees') }}">
+    <h3 style="margin:0 0 6px;">Employees</h3>
+    <p style="margin:0;opacity:.85;">Add / edit employees, assign roles, activate/deactivate accounts.</p>
+  </a>
+
+  <a class="card" style="text-decoration:none;" href="{{ url_for('sales') }}">
+    <h3 style="margin:0 0 6px;">Sales</h3>
+    <p style="margin:0;opacity:.85;">Optional: view sales history (admin can access sales too).</p>
+  </a>
+
+  <a class="card" style="text-decoration:none;" href="{{ url_for('customers') }}">
+    <h3 style="margin:0 0 6px;">Customers</h3>
+    <p style="margin:0;opacity:.85;">View / manage customers (admin can also delete).</p>
+  </a>
+</div>
+
+{% endblock %}

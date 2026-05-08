@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="card">
+  <h2>Supplier Products</h2>
+  <p>Which supplier provides which product + supplier cost.</p>
+
+  <a class="btn btn-primary" href="{{ url_for('supplier_products_add') }}">+ Add Supplier Product</a>
+  <a class="btn btn-secondary" href="{{ url_for('purchasing_orders') }}">Back to Orders</a>
+
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Supplier</th><th>Product</th><th>Supplier Cost</th><th>Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td>{{ r.SupplierName }} ({{ r.SupplierID }})</td>
+        <td>{{ r.ProductName }} ({{ r.ProductID }})</td>
+        <td>{{ "%.2f"|format(r.SupplierCost) }}</td>
+        <td>
+          <form method="POST" action="{{ url_for('supplier_products_delete') }}" style="display:inline;">
+            <input type="hidden" name="supplier_id" value="{{ r.SupplierID }}">
+            <input type="hidden" name="product_id" value="{{ r.ProductID }}">
+            <button class="btn btn-small btn-danger" type="submit"
+              onclick="return confirm('Delete this mapping?')">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+      {% if rows|length == 0 %}
+      <tr><td colspan="4">No supplier-product mappings yet.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}

@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h2>Adjust Stock</h2>
+<p class="text-muted">
+  Product: <b>{{ product[1] }}</b> (ID: {{ product[0] }}) — Current stock: <b>{{ product[2] }}</b>
+</p>
+
+<form method="POST" style="max-width: 520px;">
+  <div style="margin-bottom: 12px;">
+    <label>Delta Quantity (use + or -)</label><br>
+    <input type="number" name="delta" class="form-control" placeholder="Example: 5 or -2" required>
+  </div>
+
+  <div style="margin-bottom: 12px;">
+    <label>Reason</label><br>
+    <input type="text" name="reason" class="form-control" placeholder="Example: supplier delivery / damaged items" required>
+  </div>
+
+  <div style="margin-bottom: 18px;">
+    <label>Employee ID (optional)</label><br>
+    <input type="number" name="employee_id" class="form-control" placeholder="Example: 1">
+  </div>
+
+  <button type="submit" class="btn btn-dark-yellow btn-sm">Save</button>
+  <a href="{{ url_for('inventory') }}" class="btn btn-outline-light btn-sm">Cancel</a>
+</form>
+
+{% endblock %}

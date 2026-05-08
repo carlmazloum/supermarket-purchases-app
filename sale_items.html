@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h2>Delete Employee</h2>
+<p>Are you sure you want to delete employee ID {{ emp_id }}?</p>
+
+<form method="POST" action="/employees/delete/{{ emp_id }}">
+  <button type="submit">Yes, Delete</button>
+  <a href="/employees">Cancel</a>
+</form>
+
+{% endblock %}

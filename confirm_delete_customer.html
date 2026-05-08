@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-card">
+  <h1 class="page-title">Admin Dashboard</h1>
+  <p class="page-subtitle">Welcome, {{ session.username }} (ADMIN)</p>
+
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;">
+    <a class="btn btn-primary" href="/suppliers">Suppliers</a>
+    <a class="btn btn-primary" href="/products">Products</a>
+    <a class="btn btn-primary" href="/purchasing/orders">Purchasing</a>
+    <a class="btn btn-secondary" href="{{ url_for('logout') }}">Logout</a>
+  </div>
+</div>
+{% endblock %}

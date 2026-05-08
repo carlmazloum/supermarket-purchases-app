@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="card">
+  <h2>Supplier Orders</h2>
+  <p>Create and manage purchase orders to suppliers.</p>
+
+  <a class="btn btn-primary" href="{{ url_for('purchasing_orders_new') }}">+ New Supplier Order</a>
+  <a class="btn btn-secondary" href="{{ url_for('supplier_products_list') }}">Supplier Products</a>
+
+  <table class="table">
+    <thead>
+      <tr>
+        <th>ID</th><th>Supplier</th><th>Order Date</th><th>Expected</th><th>Status</th><th>Total</th><th>Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for o in orders %}
+      <tr>
+        <td>{{ o.OrderID }}</td>
+        <td>{{ o.SupplierName }}</td>
+        <td>{{ o.OrderDate }}</td>
+        <td>{{ o.ExpectedDeliveryDate }}</td>
+        <td>{{ o.Status }}</td>
+        <td>{{ "%.2f"|format(o.TotalAmount or 0) }}</td>
+        <td>
+          <a class="btn btn-small" href="{{ url_for('purchasing_order_details', order_id=o.OrderID) }}">View</a>
+          <form method="POST" action="{{ url_for('purchasing_order_delete', order_id=o.OrderID) }}" style="display:inline;">
+            <button class="btn btn-small btn-danger" type="submit"
+              onclick="return confirm('Delete this supplier order?')">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+      {% if orders|length == 0 %}
+      <tr><td colspan="7">No supplier orders yet.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}

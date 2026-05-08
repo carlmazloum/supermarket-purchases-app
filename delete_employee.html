@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page-card">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Supplier Order #{{ order.OrderID }}</h1>
+      <p class="page-subtitle">
+        <b>Supplier:</b> {{ order.SupplierName }}
+        &nbsp; | &nbsp;
+        <b>Status:</b> {{ order.Status }}
+        &nbsp; | &nbsp;
+        <b>Total:</b> {{ "%.2f"|format(order.TotalAmount or 0) }}
+      </p>
+      <p class="page-subtitle">
+        <b>Order Date:</b> {{ order.OrderDate }}
+        &nbsp; | &nbsp;
+        <b>Expected:</b> {{ order.ExpectedDeliveryDate if order.ExpectedDeliveryDate else "-" }}
+      </p>
+    </div>
+
+    <div class="page-actions">
+      <a class="btn btn-secondary" href="{{ url_for('purchasing_orders') }}">Back</a>
+<form method="post" action="{{ url_for('purchasing_order_add_line', order_id=order.OrderID) }}"></form>
+      <form method="POST" action="{{ url_for('purchasing_order_delete', order_id=order.OrderID) }}"
+            style="display:inline;">
+        <button class="btn btn-danger" type="submit"
+                onclick="return confirm('Delete this supplier order? This will delete all its lines.')">
+          Delete Order
+        </button>
+      </form>
+      
+    </div>
+  </div>
+
+  <hr class="sep">
+
+  <h2 class="section-title">Order Lines</h2>
+
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th style="width:70px;">Line</th>
+          <th>Product</th>
+          <th style="width:120px;">Ordered</th>
+          <th style="width:120px;">Received</th>
+          <th style="width:120px;">Unit Cost</th>
+          <th style="width:140px;">Line Total</th>
+          <th style="width:220px;">Receive Stock</th>
+        </tr>
+      </thead>
+
+      <tbody>
+        {% if lines and lines|length > 0 %}
+          {% for line in lines %}
+          <tr>
+            <td>{{ line.LineNumber }}</td>
+
+            <td>
+              {{ line.ProductName }}
+              <div class="muted">ProductID: {{ line.ProductID }}</div>
+            </td>
+
+            <td>{{ line.OrderedQty }}</td>
+            <td>{{ line.ReceivedQty if line.ReceivedQty is not none else 0 }}</td>
+            <td>{{ "%.2f"|format(line.UnitCost or 0) }}</td>
+            <td>{{ "%.2f"|format(line.LineTotal or 0) }}</td>
+
+            <td>
+              {% set recv = (line.ReceivedQty if line.ReceivedQty is not none else 0) %}
+              {% if recv >= line.OrderedQty %}
+                <span class="badge badge-ok">Fully received</span>
+              {% else %}
+                <form method="POST"
+                      action="/purchasing/orders/{{ order.OrderID }}/receive"
+                      class="receive-form">
+                  <input type="hidden" name="line_number" value="{{ line.LineNumber }}">
+
+                  <input type="number"
+                         name="received_qty"
+                         min="1"
+                         max="{{ line.OrderedQty - recv }}"
+                         placeholder="Qty"
+                         required>
+
+                  <button type="submit"
+                          class="btn btn-small btn-primary"
+                          onclick="return confirm('Receive this quantity and update stock?')">
+                    Receive
+                  </button>
+                </form>
+
+                <div class="muted" style="margin-top:6px;">
+                  Remaining: {{ line.OrderedQty - recv }}
+                </div>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td colspan="7" style="text-align:center; opacity:.8;">
+              No lines yet.
+              <br>
+              <a class="btn btn-small btn-primary" href="{{ url_for('purchasing_order_add_line', order_id=order.OrderID) }}">
+                Add line items
+              </a>
+            </td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  <div style="margin-top:14px;">
+    <a class="btn btn-primary" href="{{ url_for('purchasing_order_add_line', order_id=order.OrderID) }}">
+      + Add Line Items
+    </a>
+  </div>
+</div>
+
+<!-- Minimal styling (if you already have these in your CSS, you can remove) -->
+<style>
+.page-card{
+  max-width:1100px;
+  margin:30px auto;
+  padding:22px;
+  border-radius:14px;
+  background:rgba(20, 35, 70, 0.55);
+  border:1px solid rgba(255,255,255,0.08);
+}
+.page-header{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}
+.page-title{margin:0;color:#fff;font-size:30px;font-weight:900}
+.page-subtitle{margin:6px 0 0;color:#dbe4ff}
+.page-actions{display:flex;gap:10px;align-items:center}
+.sep{border:none;border-top:1px solid rgba(255,255,255,0.12);margin:16px 0}
+.section-title{margin:0 0 10px;color:#fff}
+.table-wrap{border-radius:12px;overflow:hidden;border:1px solid rgba(255,255,255,0.08)}
+.table{width:100%;border-collapse:collapse}
+.table th{background:rgba(255,255,255,0.06);color:#ffd66b;text-align:left;padding:12px}
+.table td{padding:12px;color:#e9eeff;border-top:1px solid rgba(255,255,255,0.08);vertical-align:top}
+.muted{color:#b9c6ff;font-size:12px}
+.btn{display:inline-block;padding:10px 14px;border-radius:999px;font-weight:800;text-decoration:none;border:1px solid transparent}
+.btn-small{padding:8px 12px;font-size:14px}
+.btn-primary{background:#f5b301;color:#0a0f1f}
+.btn-secondary{background:rgba(255,255,255,0.08);color:#fff;border-color:rgba(255,255,255,0.12)}
+.btn-danger{background:rgba(255,70,70,0.18);color:#fff;border-color:rgba(255,70,70,0.4)}
+.badge{display:inline-block;padding:6px 10px;border-radius:999px;font-weight:900;font-size:12px}
+.badge-ok{background:rgba(0,255,140,0.12);border:1px solid rgba(0,255,140,0.35);color:#dfffea}
+.receive-form{display:flex;gap:8px;align-items:center}
+.receive-form input{
+  width:80px;
+  padding:8px 10px;
+  border-radius:10px;
+  border:1px solid rgba(255,255,255,0.15);
+  background:rgba(0,0,0,0.25);
+  color:#fff;
+}
+</style>
+
+{% endblock %}

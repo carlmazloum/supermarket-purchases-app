@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h3>Delete Employee</h3>
+<p>Are you sure you want to delete this employee?</p>
+
+<form method="POST">
+  <button class="btn btn-danger btn-sm">Yes, Delete</button>
+  <a href="{{ url_for('employees') }}" class="btn btn-outline btn-sm">Cancel</a>
+</form>
+
+{% endblock %}

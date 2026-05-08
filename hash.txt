@@ -1,0 +1,1491 @@
+import os
+from functools import wraps
+from flask import Flask, render_template, request, redirect, url_for, session
+import mysql.connector
+from mysql.connector import Error
+
+# Optional: support Werkzeug (Flask) password hashes like "scrypt:..." or "pbkdf2:..."
+try:
+    from werkzeug.security import check_password_hash
+except Exception:  # pragma: no cover
+    check_password_hash = None
+import hashlib
+ADMIN_EMPLOYEE_ID = 5  # change to your admin EmployeeID in the employee table
+app = Flask(__name__)
+app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-change-me')
+
+# ---------------- Database connection helper ---------------- #
+def get_db():
+    return mysql.connector.connect(
+        host="localhost",
+        user="flaskuser",               # your user
+        password="flaskpass",           # your password
+        database="supermarket purchases db"
+    )
+
+
+# ----------------------------
+# Auth helpers (added)
+# ----------------------------
+def _sha256_hex(plain: str) -> str:
+    return hashlib.sha256((plain or "").encode("utf-8")).hexdigest()
+
+def verify_password(plain: str, stored_hash: str) -> bool:
+    """Supports both:
+    - SHA256 hex (64 chars)
+    - Werkzeug hashes (scrypt:, pbkdf2:, etc.) if available
+    """
+    if not stored_hash:
+        return False
+
+    stored_hash = (stored_hash or "").strip()
+
+    # Werkzeug hash formats usually contain ':' and '$' and start with algo prefix
+    if check_password_hash and (stored_hash.startswith("scrypt:") or stored_hash.startswith("pbkdf2:") or (":" in stored_hash and "$" in stored_hash)):
+        try:
+            return check_password_hash(stored_hash, plain)
+        except Exception:
+            return _sha256_hex(plain) == stored_hash
+
+    return _sha256_hex(plain) == stored_hash
+
+@app.before_request
+def _require_login():
+    # Allow login page + static files without session
+    if request.endpoint in ("login", "static"):
+        return
+    if not session.get("employee_id"):
+        return redirect(url_for("login", next=request.path))
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    error = None
+    if request.method == "POST":
+        username = (request.form.get("username") or "").strip()
+        password = request.form.get("password") or ""
+
+        if not username or not password:
+            return render_template("login.html", error="Please enter username and password.")
+
+        try:
+            db = get_db()
+            cur = db.cursor(dictionary=True)
+            cur.execute(
+                """
+                SELECT EmployeeID, Username, FullName, Role, Status, PasswordHash
+                FROM employee
+                WHERE Username = %s
+                LIMIT 1
+                """,
+                (username,),
+            )
+            emp = cur.fetchone()
+            cur.close()
+            db.close()
+        except Error as e:
+            return f"Login DB error: {e!r}"
+
+        if not emp:
+            error = "Invalid username or password."
+        elif (emp.get("Status") or "").upper() != "ACTIVE":
+            error = "Your account is inactive. Please contact the admin."
+        elif not verify_password(password, emp.get("PasswordHash") or ""):
+            error = "Invalid username or password."
+        else:
+            session.clear()
+            session["employee_id"] = emp["EmployeeID"]
+            session["username"] = emp["Username"]
+            session["full_name"] = emp.get("FullName") or emp["Username"]
+            session["role"] = (emp.get("Role") or "").upper()
+            next_url = request.args.get("next")
+            return redirect(next_url or url_for("home"))
+
+    return render_template("login.html", error=error)
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
+# ---------------- Home / Dashboard ---------------- #
+@app.route("/")
+def home():
+    return render_template('home.html', active_page='dashboard')
+
+
+# ==============================================================
+#                       PRODUCTS  (CRUD)
+# ==============================================================
+
+@app.route("/products")
+def products():
+    """List all products."""
+    try:
+        db = get_db()
+        cur = db.cursor()
+        cur.execute("""
+            SELECT ProductID, Name, UnitPrice, StockQty
+            FROM PRODUCT
+            ORDER BY ProductID
+        """)
+        rows = cur.fetchall()
+        db.close()
+        return render_template("products.html", products=rows)
+    except Error as e:
+        return f"Products error: {e!r}"
+
+
+from flask import request, render_template, redirect, url_for
+from mysql.connector import Error
+
+# Optional: support Werkzeug (Flask) password hashes like "scrypt:..." or "pbkdf2:..."
+try:
+    from werkzeug.security import check_password_hash
+except Exception:  # pragma: no cover
+    check_password_hash = None
+
+@app.route("/add_product", methods=["GET", "POST"])
+def add_product():
+    try:
+        db = get_db()
+        cur = db.cursor()
+
+        if request.method == "POST":
+            name = request.form.get("name", "").strip()
+            description = request.form.get("description", "").strip()
+            category = request.form.get("category", "").strip()
+
+            unit_price = request.form.get("unit_price", "").strip()
+            unit_cost  = request.form.get("unit_cost", "").strip()
+
+            stock_qty = request.form.get("stock_qty", "").strip()
+            reorder_level = request.form.get("reorder_level", "0").strip()
+            status = request.form.get("status", "ACTIVE").strip()
+
+            # Basic validation
+            if not name or not category or unit_price == "" or unit_cost == "" or stock_qty == "":
+                db.close()
+                return "Missing required fields"
+
+            sql = """
+                INSERT INTO PRODUCT
+                    (Name, Description, UnitPrice, UnitCost, Category, StockQty, ReorderLevel, Status)
+                VALUES
+                    (%s, %s, %s, %s, %s, %s, %s, %s)
+            """
+
+            cur.execute(sql, (
+                name,
+                description,
+                float(unit_price),
+                float(unit_cost),
+                category,
+                int(stock_qty),
+                int(reorder_level or 0),
+                status
+            ))
+
+            db.commit()
+            db.close()
+            return redirect(url_for("products"))
+
+        # GET
+        db.close()
+        return render_template("add_product.html")
+
+    except Error as e:
+        return f"Add product error: {e!r}"
+
+@app.route("/edit_product/<int:product_id>", methods=["GET", "POST"])
+def edit_product(product_id):
+    db = get_db()
+    cur = db.cursor()
+
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        category = request.form.get("category", "").strip()
+        unit_price = request.form.get("unit_price", "0").strip()
+        stock_qty = request.form.get("stock_qty", "0").strip()
+        status = request.form.get("status", "").strip()
+
+        cur.execute("""
+            UPDATE PRODUCT
+            SET Name=%s, Category=%s, UnitPrice=%s, StockQty=%s, Status=%s
+            WHERE ProductID=%s
+        """, (name, category, float(unit_price), int(stock_qty), status, product_id))
+        db.commit()
+        db.close()
+        return redirect(url_for("products"))
+
+    cur.execute("""
+        SELECT ProductID, Name, Category, UnitPrice, StockQty, Status
+        FROM PRODUCT
+        WHERE ProductID=%s
+    """, (product_id,))
+    product = cur.fetchone()
+    db.close()
+
+    if not product:
+        return "Product not found"
+
+    return render_template("edit_product.html", product=product, active_page="products")
+
+
+@app.route("/delete_product/<int:product_id>")
+def delete_product(product_id):
+    """Hard delete product and its child rows."""
+    try:
+        db = get_db()
+        cur = db.cursor()
+
+        # Delete child rows first (avoid FK problems)
+        cur.execute("DELETE FROM TRANSACTION_LINE WHERE ProductID = %s", (product_id,))
+        cur.execute("DELETE FROM SUPPLIER_ORDER_LINE WHERE ProductID = %s", (product_id,))
+        cur.execute("DELETE FROM SUPPLIER_PRODUCT WHERE ProductID = %s", (product_id,))
+        cur.execute("DELETE FROM INVENTORY_ADJUSTMENT WHERE ProductID = %s", (product_id,))
+
+        # Then delete the product
+        cur.execute("DELETE FROM PRODUCT WHERE ProductID = %s", (product_id,))
+
+        db.commit()
+        db.close()
+        return redirect(url_for("products"))
+    except Error as e:
+        return f"Delete product error: {e!r}"
+
+# ==============================================================
+#                       EMPLOYEES  (CRUD)
+# ==============================================================
+# ===================== EMPLOYEES =====================
+
+@app.route("/employees")
+def employees():
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("""
+        SELECT EmployeeID, Username, FullName, Role, Status
+        FROM employee
+        ORDER BY EmployeeID
+    """)
+    rows = cur.fetchall()
+    db.close()
+    return render_template("employees.html", employees=rows, active_page="employees")
+
+
+@app.route("/employees/add", methods=["GET", "POST"])
+def add_employee():
+    if request.method == "GET":
+        return render_template("add_employee.html")
+
+    username = request.form.get("username", "").strip()
+    full_name = request.form.get("full_name", "").strip()
+    role = request.form.get("role", "").strip()
+    password = request.form.get("password", "")
+    status = request.form.get("status", "ACTIVE").strip()
+
+    if not username or not full_name or not role or not password:
+        return render_template("add_employee.html", error="Please fill all fields.")
+
+    # simple hash (good enough for a DB course project)
+    password_hash = hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+    db = get_db()
+    cur = db.cursor()
+    try:
+        cur.execute("""
+            INSERT INTO EMPLOYEE (Username, PasswordHash, FullName, Role, Status)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (username, password_hash, full_name, role, status))
+        db.commit()
+    except mysql.connector.Error as e:
+        db.rollback()
+        return render_template("add_employee.html", error=f"Add employee error: {e}")
+    finally:
+        cur.close()
+        db.close()
+
+    return redirect("/employees")
+@app.route("/employees/edit/<int:id>", methods=["GET", "POST"])
+def edit_employee(id):
+    db = get_db()
+    cur = db.cursor()
+
+    if request.method == "POST":
+        username = request.form["username"]
+        fullname = request.form["fullname"]
+        role = request.form["role"]
+        status = request.form["status"]
+
+        cur.execute("""
+            UPDATE employee
+            SET Username=%s, FullName=%s, Role=%s, Status=%s
+            WHERE EmployeeID=%s
+        """, (username, fullname, role, status, id))
+        db.commit()
+        db.close()
+        return redirect(url_for("employees"))
+
+    cur.execute("SELECT * FROM employee WHERE EmployeeID=%s", (id,))
+    emp = cur.fetchone()
+    db.close()
+    return render_template("edit_employee.html", emp=emp, active_page="employees")
+
+
+
+@app.route("/employees/delete/<int:emp_id>", methods=["GET"])
+def confirm_delete_employee(emp_id):
+    return render_template("delete_employee.html", emp_id=emp_id)
+
+
+@app.route("/employees/delete/<int:emp_id>", methods=["POST"])
+def delete_employee(emp_id):
+    db = None
+    cur = None
+    try:
+        db = get_db()
+        cur = db.cursor()
+
+       
+        cur.execute("""
+            UPDATE transaction
+            SET CashierID = NULL
+            WHERE CashierID = %s
+        """, (emp_id,))
+
+       
+        cur.execute("""
+            DELETE FROM employee
+            WHERE EmployeeID = %s
+        """, (emp_id,))
+
+        db.commit()
+        return redirect(url_for("employees"))
+
+    except Exception as e:
+        if db:
+            db.rollback()
+        return f"Delete employee error: {e}"
+
+    finally:
+        if cur:
+            cur.close()
+        if db:
+            db.close()
+# ==============================================================
+#                       CUSTOMERS  (CRUD)
+# ==============================================================
+
+# ----------------- CUSTOMERS -----------------
+
+# ---------- CUSTOMERS ----------
+
+@app.route("/customers")
+def customers():
+    """List all customers"""
+    try:
+        db = get_db()
+        cur = db.cursor()
+        cur.execute("""
+            SELECT CustomerID, FirstName, LastName, Phone, Email, Address, LoyaltyID
+            FROM CUSTOMER
+            ORDER BY CustomerID
+        """)
+        rows = cur.fetchall()
+        db.close()
+        return render_template("customers.html", customers=rows)
+    except Error as e:
+        return f"Customers page error: {e!r}"
+
+
+@app.route("/add_customer", methods=["GET", "POST"])
+def add_customer():
+    """Create a new customer"""
+    try:
+        if request.method == "POST":
+            first = request.form.get("first_name", "").strip()
+            last = request.form.get("last_name", "").strip()
+            phone = request.form.get("phone", "").strip()
+            email = request.form.get("email", "").strip()
+            address = request.form.get("address", "").strip()
+            loyalty = request.form.get("loyalty", "").strip()
+
+            if not first or not last:
+                return "First and last name are required"
+
+            db = get_db()
+            cur = db.cursor()
+            cur.execute("""
+                INSERT INTO CUSTOMER (FirstName, LastName, Phone, Email, Address, LoyaltyID)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, (first, last, phone, email, address, loyalty))
+            db.commit()
+            db.close()
+            return redirect(url_for("customers"))
+
+        # GET
+        return render_template("add_customer.html")
+    except Error as e:
+        return f"Add customer error: {e!r}"
+
+
+@app.route("/edit_customer/<int:customer_id>", methods=["GET", "POST"])
+def edit_customer(customer_id):
+    """Edit existing customer"""
+    try:
+        db = get_db()
+        cur = db.cursor()
+
+        if request.method == "POST":
+            first = request.form.get("first_name", "").strip()
+            last = request.form.get("last_name", "").strip()
+            phone = request.form.get("phone", "").strip()
+            email = request.form.get("email", "").strip()
+            address = request.form.get("address", "").strip()
+            loyalty = request.form.get("loyalty", "").strip()
+
+            cur.execute("""
+                UPDATE CUSTOMER
+                SET FirstName=%s,
+                    LastName=%s,
+                    Phone=%s,
+                    Email=%s,
+                    Address=%s,
+                    LoyaltyID=%s
+                WHERE CustomerID=%s
+            """, (first, last, phone, email, address, loyalty, customer_id))
+
+            db.commit()
+            db.close()
+            return redirect(url_for("customers"))
+
+        # GET – load customer row
+        cur.execute("""
+            SELECT CustomerID, FirstName, LastName, Phone, Email, Address, LoyaltyID
+            FROM CUSTOMER
+            WHERE CustomerID=%s
+        """, (customer_id,))
+        customer = cur.fetchone()
+        db.close()
+
+        if not customer:
+            return f"Customer {customer_id} not found"
+
+        return render_template("edit_customer.html", customer=customer)
+
+    except Error as e:
+        return f"Edit customer error: {e!r}"
+
+
+@app.route("/delete_customer/<int:customer_id>", methods=["GET", "POST"])
+def delete_customer(customer_id):
+    try:
+        db = get_db()
+        cur = db.cursor()
+
+        if request.method == "POST":
+            # --- start a multi-step transaction ---
+            try:
+                # 1) Get all transactions for this customer
+                cur.execute("""
+                    SELECT TransactionID
+                    FROM `TRANSACTION`
+                    WHERE CustomerID = %s
+                """, (customer_id,))
+                tx_ids = [row[0] for row in cur.fetchall()]
+
+                if tx_ids:
+                    # 2) Delete transaction lines for those transactions
+                    format_ids = ",".join(["%s"] * len(tx_ids))
+
+                    cur.execute(
+                        f"DELETE FROM TRANSACTION_LINE "
+                        f"WHERE TransactionID IN ({format_ids})",
+                        tx_ids
+                    )
+
+                    # 3) Delete transactions for this customer
+                    cur.execute(
+                        "DELETE FROM `TRANSACTION` WHERE CustomerID = %s",
+                        (customer_id,)
+                    )
+
+                # 4) Finally delete the customer
+                cur.execute(
+                    "DELETE FROM CUSTOMER WHERE CustomerID = %s",
+                    (customer_id,)
+                )
+
+                db.commit()
+                db.close()
+                return redirect(url_for("customers"))
+
+            except Error as e:
+                db.rollback()
+                db.close()
+                return f"Delete customer error (rolled back): {e!r}"
+
+        # -------- GET: show confirmation page --------
+        cur.execute("""
+            SELECT CustomerID, FirstName, LastName, Phone, Email, Address, LoyaltyID
+            FROM CUSTOMER
+            WHERE CustomerID = %s
+        """, (customer_id,))
+        customer = cur.fetchone()
+        db.close()
+
+        if not customer:
+            return f"Customer {customer_id} not found"
+
+        # this is the confirmation HTML we made earlier
+        return render_template("confirm_delete_customer.html", customer=customer)
+
+    except Error as e:
+        return f"Delete customer error: {e!r}"
+
+# ==============================================================
+#                       SUPPLIERS  (CRUD)
+# ==============================================================
+
+from flask import request  # make sure this is imported at the top
+
+@app.route("/suppliers")
+def suppliers():
+    try:
+        err = request.args.get("err")  # <-- this reads ?err=...
+        db = get_db()
+        cur = db.cursor(dictionary=True)  # ✅ important
+
+        cur.execute("""
+            SELECT SupplierID, Name, ContactPerson, Phone, Email, Address,
+                   LeadTimeDays, MinOrderQty
+            FROM supplier
+            ORDER BY SupplierID
+        """)
+        rows = cur.fetchall()
+        db.close()
+
+        return render_template(
+            "suppliers.html",
+            suppliers=rows,
+            err=err,                 
+            active_page="suppliers"  
+        )
+
+    except Exception as e:
+        return f"Suppliers error: {e}"
+
+
+@app.route("/add_supplier", methods=["GET", "POST"])
+def add_supplier():
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        contact = request.form.get("contact_person", "").strip()
+        phone = request.form.get("phone", "").strip()
+        email = request.form.get("email", "").strip()
+        address = request.form.get("address", "").strip()
+        lead_time = request.form.get("lead_time", "0").strip()
+        min_qty = request.form.get("min_order", "0").strip()
+
+        if not name:
+            return "Supplier name is required"
+
+        try:
+            db = get_db()
+            cur = db.cursor()
+            sql = """
+                INSERT INTO SUPPLIER
+                    (Name, ContactPerson, Phone, Email, Address, LeadTimeDays, MinOrderQty)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """
+            cur.execute(sql, (name, contact, phone, email, address,
+                              int(lead_time or 0), int(min_qty or 0)))
+            db.commit()
+            db.close()
+            return redirect(url_for("suppliers"))
+        except Error as e:
+            return f"Add supplier error: {e!r}"
+
+    return render_template("add_supplier.html")
+
+
+@app.route("/edit_supplier/<int:supplier_id>", methods=["GET", "POST"])
+def edit_supplier(supplier_id):
+    db = get_db()
+    cur = db.cursor()
+
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        contact_person = request.form.get("contact_person", "").strip()
+        phone = request.form.get("phone", "").strip()
+        email = request.form.get("email", "").strip()
+        address = request.form.get("address", "").strip()
+        lead_time = request.form.get("lead_time", "0").strip()
+        min_order = request.form.get("min_order", "0").strip()
+
+        if not name:
+            db.close()
+            return "Supplier name is required"
+
+        lead_time_val = int(lead_time) if lead_time else 0
+        min_order_val = int(min_order) if min_order else 0
+
+        cur.execute(
+            """
+            UPDATE supplier
+            SET Name = %s,
+                ContactPerson = %s,
+                Phone = %s,
+                Email = %s,
+                Address = %s,
+                LeadTimeDays = %s,
+                MinOrderQty = %s
+            WHERE SupplierID = %s
+            """,
+            (
+                name,
+                contact_person,
+                phone,
+                email,
+                address,
+                lead_time_val,
+                min_order_val,
+                supplier_id,
+            ),
+        )
+        db.commit()
+        db.close()
+        return redirect(url_for("suppliers"))
+
+    # ---------- GET: show form with existing values ----------
+    cur.execute(
+        """
+        SELECT SupplierID, Name, ContactPerson, Phone, Email, Address,
+               LeadTimeDays, MinOrderQty
+        FROM supplier
+        WHERE SupplierID = %s
+        """,
+        (supplier_id,),
+    )
+    supplier = cur.fetchone()
+    db.close()
+
+    if not supplier:
+        return f"Edit supplier error: supplier {supplier_id} not found"
+
+    return render_template("edit_supplier.html", supplier=supplier)
+
+
+@app.route("/suppliers/<int:supplier_id>/delete", methods=["POST"])
+def delete_supplier(supplier_id):
+    db = get_db()
+    cur = db.cursor()
+    try:
+        cur.execute("DELETE FROM supplier WHERE SupplierID=%s", (supplier_id,))
+        db.commit()
+        return redirect(url_for("suppliers"))
+    except Exception as e:
+        db.rollback()
+
+        msg = str(e).lower()
+        if "foreign key" in msg or "constraint fails" in msg:
+            return redirect(url_for("suppliers", err="Cannot delete: this supplier has orders/products. Delete those first."))
+        return redirect(url_for("suppliers", err=f"Delete error: {e}"))
+    finally:
+        cur.close()
+        db.close()
+
+
+# ==============================================================
+#                       INVENTORY + SALES
+# ==============================================================
+
+# 1) Sales list
+@app.route("/sales")
+def sales():
+    try:
+        db = get_db()
+        cur = db.cursor()
+
+        cur.execute("""
+            SELECT t.TransactionID,
+                   t.TransactionDateTime,
+                   CONCAT(c.FirstName, ' ', c.LastName) AS CustomerName,
+                   e.FullName AS CashierName,
+                   t.PaymentMethod,
+                   t.TotalAmount,
+                   t.Status
+            FROM `transaction` t
+            LEFT JOIN customer c ON c.CustomerID = t.CustomerID
+            LEFT JOIN employee e ON e.EmployeeID = t.CashierID
+            ORDER BY t.TransactionID DESC
+        """)
+        rows = cur.fetchall()
+
+        cur.close()
+        db.close()
+        return render_template("sales.html", sales=rows, active_page="sales")
+
+    except Error as e:
+        return f"Sales page error: {e}"
+
+
+# 2) Step 1: create transaction header
+@app.route("/sales/new", methods=["GET", "POST"])
+def new_sale():
+    try:
+        db = get_db()
+        cur = db.cursor()
+
+        cur.execute("SELECT CustomerID, FirstName, LastName FROM customer ORDER BY FirstName, LastName")
+        customers = cur.fetchall()
+
+        cur.execute("SELECT EmployeeID, FullName FROM employee ORDER BY FullName")
+        cashiers = cur.fetchall()
+
+        if request.method == "POST":
+            customer_id = request.form.get("customer_id")
+            cashier_id = request.form.get("cashier_id")
+            payment_method = request.form.get("payment_method")
+            status = request.form.get("status", "Completed")
+
+            cur.execute("""
+                INSERT INTO `transaction` (TransactionDateTime, CashierID, CustomerID, TotalAmount, PaymentMethod, Status)
+                VALUES (NOW(), %s, %s, 0, %s, %s)
+            """, (cashier_id, customer_id, payment_method, status))
+            db.commit()
+
+            new_id = cur.lastrowid
+            cur.close()
+            db.close()
+            return redirect(url_for("sale_items", transaction_id=new_id))
+
+        cur.close()
+        db.close()
+        return render_template("new_sale.html", customers=customers, cashiers=cashiers, active_page="sales")
+
+    except Error as e:
+        return f"Create transaction error: {e}"
+
+
+# 3) Step 2: add items + update stock + update total
+@app.route("/sales/<int:transaction_id>/items", methods=["GET", "POST"])
+def sale_items(transaction_id):
+    try:
+        db = get_db()
+        cur = db.cursor()
+
+        cur.execute("""
+            SELECT t.TransactionID, t.TransactionDateTime,
+                   CONCAT(c.FirstName,' ',c.LastName) AS CustomerName,
+                   e.FullName AS CashierName,
+                   t.PaymentMethod, t.TotalAmount, t.Status
+            FROM `transaction` t
+            LEFT JOIN customer c ON c.CustomerID = t.CustomerID
+            LEFT JOIN employee e ON e.EmployeeID = t.CashierID
+            WHERE t.TransactionID = %s
+        """, (transaction_id,))
+        header = cur.fetchone()
+        if not header:
+            cur.close(); db.close()
+            return "Transaction not found."
+
+        cur.execute("SELECT ProductID, Name, UnitPrice, StockQty FROM product ORDER BY Name")
+        products = cur.fetchall()
+
+        if request.method == "POST":
+            product_id = int(request.form.get("product_id"))
+            qty = int(request.form.get("quantity"))
+
+            cur.execute("SELECT UnitPrice, StockQty FROM product WHERE ProductID=%s", (product_id,))
+            prod = cur.fetchone()
+            if not prod:
+                cur.close(); db.close()
+                return "Product not found."
+
+            unit_price, stock_qty = prod
+            if qty <= 0:
+                cur.close(); db.close()
+                return "Quantity must be > 0."
+            if stock_qty < qty:
+                cur.close(); db.close()
+                return f"Not enough stock. Available: {stock_qty}"
+
+            subtotal = float(unit_price) * qty
+
+            cur.execute("""
+                SELECT COALESCE(MAX(LineNumber), 0) + 1
+                FROM transaction_line
+                WHERE TransactionID=%s
+            """, (transaction_id,))
+            next_line = cur.fetchone()[0]
+
+            cur.execute("""
+                INSERT INTO transaction_line (TransactionID, LineNumber, ProductID, Quantity, UnitPrice, LineSubtotal)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, (transaction_id, next_line, product_id, qty, unit_price, subtotal))
+
+            cur.execute("UPDATE product SET StockQty = StockQty - %s WHERE ProductID=%s", (qty, product_id))
+
+            cur.execute("""
+                UPDATE `transaction`
+                SET TotalAmount = (
+                    SELECT COALESCE(SUM(LineSubtotal), 0)
+                    FROM transaction_line
+                    WHERE TransactionID=%s
+                )
+                WHERE TransactionID=%s
+            """, (transaction_id, transaction_id))
+
+            db.commit()
+            return redirect(url_for("sale_items", transaction_id=transaction_id))
+
+        cur.execute("""
+            SELECT tl.LineNumber, tl.ProductID, p.Name, tl.Quantity, tl.UnitPrice, tl.LineSubtotal
+            FROM transaction_line tl
+            JOIN product p ON p.ProductID = tl.ProductID
+            WHERE tl.TransactionID=%s
+            ORDER BY tl.LineNumber
+        """, (transaction_id,))
+        lines = cur.fetchall()
+
+        cur.close()
+        db.close()
+        return render_template("sale_items.html", header=header, products=products, lines=lines, active_page="sales")
+
+    except Error as e:
+        return f"Sale items error: {e}"
+
+
+# 4) Delete a line (restore stock + update total)
+@app.route("/sales/<int:transaction_id>/items/delete/<int:line_number>", methods=["POST"])
+def delete_sale_line(transaction_id, line_number):
+    try:
+        db = get_db()
+        cur = db.cursor()
+
+        cur.execute("""
+            SELECT ProductID, Quantity
+            FROM transaction_line
+            WHERE TransactionID=%s AND LineNumber=%s
+        """, (transaction_id, line_number))
+        row = cur.fetchone()
+        if not row:
+            cur.close(); db.close()
+            return redirect(url_for("sale_items", transaction_id=transaction_id))
+
+        product_id, qty = row
+
+        cur.execute("DELETE FROM transaction_line WHERE TransactionID=%s AND LineNumber=%s",
+                    (transaction_id, line_number))
+
+        cur.execute("UPDATE product SET StockQty = StockQty + %s WHERE ProductID=%s", (qty, product_id))
+
+        cur.execute("""
+            UPDATE `transaction`
+            SET TotalAmount = (
+                SELECT COALESCE(SUM(LineSubtotal), 0)
+                FROM transaction_line
+                WHERE TransactionID=%s
+            )
+            WHERE TransactionID=%s
+        """, (transaction_id, transaction_id))
+
+        db.commit()
+        cur.close()
+        db.close()
+
+        return redirect(url_for("sale_items", transaction_id=transaction_id))
+
+    except Error as e:
+        return f"Delete line error: {e}"
+
+
+# ----------------------------
+# INVENTORY
+# ----------------------------
+
+from flask import render_template, request, redirect, url_for
+from mysql.connector import Error
+
+# Optional: support Werkzeug (Flask) password hashes like "scrypt:..." or "pbkdf2:..."
+try:
+    from werkzeug.security import check_password_hash
+except Exception:  # pragma: no cover
+    check_password_hash = None
+from datetime import datetime
+
+@app.route("/inventory")
+def inventory():
+    try:
+        db = get_db()
+        cur = db.cursor()
+
+        cur.execute("""
+            SELECT ProductID, Name, Category, StockQty, ReorderLevel, Status
+            FROM product
+            ORDER BY ProductID DESC
+        """)
+        rows = cur.fetchall()
+        db.close()
+
+        return render_template(
+            "inventory2.html",
+            products=rows,
+            active_page="inventory"
+        )
+
+    except Error as e:
+        return f"Inventory error: {e!r}"
+
+
+@app.route("/adjust_stock/<int:product_id>", methods=["GET", "POST"])
+def adjust_stock(product_id):
+    try:
+        db = get_db()
+        cur = db.cursor()
+
+        # Load product (GET + also needed for POST page if validation fails)
+        cur.execute("""
+            SELECT ProductID, Name, StockQty, ReorderLevel, Status
+            FROM product
+            WHERE ProductID = %s
+        """, (product_id,))
+        product = cur.fetchone()
+
+        if not product:
+            db.close()
+            return f"Adjust stock error: Product {product_id} not found"
+
+        if request.method == "POST":
+            # read form
+            delta_str = request.form.get("delta", "").strip()
+            reason = request.form.get("reason", "").strip()
+            employee_id_str = request.form.get("employee_id", "").strip()
+
+            if delta_str == "":
+                db.close()
+                return "Delta quantity is required (ex: 5 or -2)."
+
+            try:
+                delta = int(delta_str)
+            except ValueError:
+                db.close()
+                return "Delta quantity must be an integer (ex: 5 or -2)."
+
+            if delta == 0:
+                db.close()
+                return "Delta cannot be 0."
+
+            if reason == "":
+                db.close()
+                return "Reason is required."
+
+            # Optional: employee id
+            employee_id = None
+            if employee_id_str != "":
+                try:
+                    employee_id = int(employee_id_str)
+                except ValueError:
+                    db.close()
+                    return "Employee ID must be a number."
+
+            # Update product stock
+            cur.execute("""
+                UPDATE product
+                SET StockQty = StockQty + %s
+                WHERE ProductID = %s
+            """, (delta, product_id))
+
+            # Insert adjustment record (works even if employee_id is None)
+            cur.execute("""
+                INSERT INTO inventory_adjustment (ProductID, DateTime, AdjustQty, Reason, EmployeeID)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (product_id, datetime.now(), delta, reason, employee_id))
+
+            # Recompute status (simple logic)
+            cur.execute("""
+                SELECT StockQty, ReorderLevel
+                FROM product
+                WHERE ProductID = %s
+            """, (product_id,))
+            stock_qty, reorder_level = cur.fetchone()
+
+            new_status = "OK"
+            if reorder_level is not None and stock_qty is not None and stock_qty <= reorder_level:
+                new_status = "LOW"
+
+            cur.execute("""
+                UPDATE product
+                SET Status = %s
+                WHERE ProductID = %s
+            """, (new_status, product_id))
+
+            db.commit()
+            db.close()
+            return redirect(url_for("inventory"))
+
+        # GET page
+        db.close()
+        return render_template(
+            "adjust_stock.html",
+            product=product,
+            active_page="inventory"
+        )
+
+    except Error as e:
+        return f"Adjust stock error: {e!r}"
+from flask import render_template, request, redirect, url_for, flash
+import mysql.connector
+
+# -------------------------
+# PURCHASING: Supplier Orders (supplier_order + supplier_order_line)
+# -------------------------
+
+@app.route("/purchasing/orders")
+def purchasing_orders():
+    db = get_db()
+    cur = db.cursor(dictionary=True)
+    cur.execute("""
+        SELECT so.OrderID, so.SupplierID, s.Name AS SupplierName,
+               so.OrderDate, so.ExpectedDeliveryDate, so.Status, so.TotalAmount
+        FROM supplier_order so
+        JOIN supplier s ON s.SupplierID = so.SupplierID
+        ORDER BY so.OrderID DESC
+    """)
+    orders = cur.fetchall()
+    cur.close()
+    db.close()
+    return render_template("purchasing_orders.html", orders=orders)
+
+
+@app.route("/purchasing/orders/new", methods=["GET", "POST"])
+def purchasing_orders_new():
+    db = get_db()
+    cur = db.cursor(dictionary=True)
+
+    # dropdown suppliers
+    cur.execute("SELECT SupplierID, Name FROM supplier ORDER BY Name")
+    suppliers = cur.fetchall()
+
+    # dropdown products
+    cur.execute("SELECT ProductID, Name FROM product ORDER BY Name")
+    products = cur.fetchall()
+
+
+    if request.method == "POST":
+        supplier_id = request.form.get("supplier_id")
+        order_date = request.form.get("order_date")
+        expected_date = request.form.get("expected_date") or None
+        status = request.form.get("status") or "PENDING"
+
+        try:
+            # create supplier_order
+            cur.execute("""
+                INSERT INTO supplier_order (SupplierID, OrderDate, ExpectedDeliveryDate, Status, TotalAmount)
+                VALUES (%s, %s, %s, %s, 0)
+            """, (supplier_id, order_date, expected_date, status))
+            order_id = cur.lastrowid
+
+            # arrays from form
+            product_ids = request.form.getlist("product_id[]")
+            qtys = request.form.getlist("ordered_qty[]")
+            costs = request.form.getlist("unit_cost[]")
+
+            total = 0.0
+            line_num = 1
+
+            for pid, q, c in zip(product_ids, qtys, costs):
+                if not pid or not q or not c:
+                    continue
+                q = int(q)
+                c = float(c)
+                total += q * c
+
+                cur.execute("""
+                    INSERT INTO supplier_order_line (OrderID, LineNumber, ProductID, OrderedQty, ReceivedQty, UnitCost)
+                    VALUES (%s, %s, %s, %s, 0, %s)
+                """, (order_id, line_num, pid, q, c))
+                line_num += 1
+
+            # update total
+            cur.execute("UPDATE supplier_order SET TotalAmount=%s WHERE OrderID=%s", (total, order_id))
+
+            db.commit()
+            return redirect(url_for("purchasing_order_details", order_id=order_id))
+
+        except mysql.connector.Error as e:
+            db.rollback()
+            return f"Create order error: {e}"
+
+        finally:
+            cur.close()
+            db.close()
+
+    cur.close()
+    db.close()
+    return render_template("purchasing_order_new.html",
+                       suppliers=suppliers,
+                       products=products)
+
+
+
+@app.route("/purchasing/orders/<int:order_id>")
+def purchasing_order_details(order_id):
+    db = get_db()
+    cur = db.cursor(dictionary=True)
+
+    cur.execute("""
+        SELECT so.OrderID, so.SupplierID, s.Name AS SupplierName,
+               so.OrderDate, so.ExpectedDeliveryDate, so.Status, so.TotalAmount
+        FROM supplier_order so
+        JOIN supplier s ON s.SupplierID = so.SupplierID
+        WHERE so.OrderID = %s
+    """, (order_id,))
+    order = cur.fetchone()
+
+    cur.execute("""
+        SELECT sol.OrderID, sol.LineNumber, sol.ProductID, p.Name AS ProductName,
+               sol.OrderedQty, sol.ReceivedQty, sol.UnitCost,
+               (sol.OrderedQty * sol.UnitCost) AS LineTotal
+        FROM supplier_order_line sol
+        JOIN product p ON p.ProductID = sol.ProductID
+        WHERE sol.OrderID = %s
+        ORDER BY sol.LineNumber
+    """, (order_id,))
+    lines = cur.fetchall()
+
+    cur.close()
+    db.close()
+    return render_template("purchasing_order_details.html", order=order, lines=lines)
+
+
+@app.route("/purchasing/orders/<int:order_id>/delete", methods=["POST"])
+def purchasing_order_delete(order_id):
+    db = get_db()
+    cur = db.cursor()
+    try:
+        # delete lines first (important for FK)
+        cur.execute("DELETE FROM supplier_order_line WHERE OrderID=%s", (order_id,))
+        cur.execute("DELETE FROM supplier_order WHERE OrderID=%s", (order_id,))
+        db.commit()
+        return redirect(url_for("purchasing_orders"))
+    except mysql.connector.Error as e:
+        db.rollback()
+        return f"Delete order error: {e}"
+    finally:
+        cur.close()
+        db.close()
+
+
+# -------------------------
+# PURCHASING: Supplier Product Map (supplier_product)
+# -------------------------
+
+@app.route("/purchasing/supplier-products")
+def supplier_products_list():
+    db = get_db()
+    cur = db.cursor(dictionary=True)
+    cur.execute("""
+        SELECT sp.SupplierID, s.Name AS SupplierName,
+               sp.ProductID, p.Name AS ProductName,
+               sp.SupplierCost
+        FROM supplier_product sp
+        JOIN supplier s ON s.SupplierID = sp.SupplierID
+        JOIN product p ON p.ProductID = sp.ProductID
+        ORDER BY s.Name, p.Name
+    """)
+    rows = cur.fetchall()
+    cur.close()
+    db.close()
+    return render_template("supplier_products.html", rows=rows)
+
+
+@app.route("/purchasing/supplier-products/add", methods=["GET", "POST"])
+def supplier_products_add():
+    db = get_db()
+    cur = db.cursor(dictionary=True)
+
+    cur.execute("SELECT SupplierID, Name FROM supplier ORDER BY Name")
+    suppliers = cur.fetchall()
+    cur.execute("SELECT ProductID, Name FROM product ORDER BY Name")
+    products = cur.fetchall()
+
+    if request.method == "POST":
+        supplier_id = request.form.get("supplier_id")
+        product_id = request.form.get("product_id")
+        supplier_cost = request.form.get("supplier_cost")
+
+        try:
+            cur.execute("""
+                INSERT INTO supplier_product (SupplierID, ProductID, SupplierCost)
+                VALUES (%s, %s, %s)
+            """, (supplier_id, product_id, supplier_cost))
+            db.commit()
+            return redirect(url_for("supplier_products_list"))
+        except mysql.connector.Error as e:
+            db.rollback()
+            return f"Add supplier_product error: {e}"
+        finally:
+            cur.close()
+            db.close()
+
+    cur.close()
+    db.close()
+    return render_template("supplier_products_add.html", suppliers=suppliers, products=products)
+    
+@app.route("/purchasing/orders/<int:order_id>/add-line", methods=["POST"])
+def purchasing_order_add_line(order_id):
+    product_id = request.form["product_id"]
+    qty = int(request.form["qty"])
+
+    db = get_db()
+    cur = db.cursor()
+
+    # get supplier cost for this supplier + product
+    cur.execute("""
+        SELECT sp.SupplierCost
+        FROM supplier_product sp
+        JOIN supplier_order so ON so.SupplierID = sp.SupplierID
+        WHERE so.OrderID = %s AND sp.ProductID = %s
+    """, (order_id, product_id))
+    row = cur.fetchone()
+    if not row:
+        return "No supplier cost found for this product", 400
+
+    unit_cost = row[0]
+
+    # insert line (LineNumber is auto OR you manage it — depends on your table)
+    cur.execute("""
+        INSERT INTO supplier_order_line (OrderID, ProductID, OrderedQty, UnitCost)
+        VALUES (%s, %s, %s, %s)
+    """, (order_id, product_id, qty, unit_cost))
+
+    # update order total
+    cur.execute("""
+        UPDATE supplier_order
+        SET TotalAmount = TotalAmount + (%s * %s)
+        WHERE OrderID = %s
+    """, (qty, unit_cost, order_id))
+
+    db.commit()
+    return redirect(url_for("purchasing_order_details", order_id=order_id))
+
+@app.route("/purchasing/supplier-products/delete", methods=["POST"])
+def supplier_products_delete():
+    supplier_id = request.form.get("supplier_id")
+    product_id = request.form.get("product_id")
+
+    db = get_db()
+    cur = db.cursor()
+    try:
+        cur.execute("""
+            DELETE FROM supplier_product
+            WHERE SupplierID=%s AND ProductID=%s
+        """, (supplier_id, product_id))
+        db.commit()
+        return redirect(url_for("supplier_products_list"))
+    except mysql.connector.Error as e:
+        db.rollback()
+        return f"Delete supplier_product error: {e}"
+    finally:
+        cur.close()
+        db.close()
+from datetime import datetime
+
+from flask import request, redirect
+from datetime import datetime
+
+@app.route("/purchasing/orders/<int:order_id>/receive", methods=["POST"])
+def receive_supplier_order_line(order_id):
+    line_number = int(request.form["line_number"])
+    received_now = int(request.form["received_qty"])
+
+    if received_now <= 0:
+        return "Received quantity must be > 0", 400
+
+    employee_id = session.get("employee_id")
+    if not employee_id:
+        return redirect(url_for("login", next=request.path))
+
+    db = get_db()
+    cur = db.cursor(dictionary=True)
+
+    try:
+        # 1) Get the line
+        cur.execute("""
+            SELECT ProductID, OrderedQty, COALESCE(ReceivedQty,0) AS ReceivedQty
+            FROM supplier_order_line
+            WHERE OrderID=%s AND LineNumber=%s
+        """, (order_id, line_number))
+        line = cur.fetchone()
+        if not line:
+            return "Order line not found", 404
+
+        product_id = line["ProductID"]
+        ordered_qty = line["OrderedQty"]
+        received_qty = line["ReceivedQty"]
+
+        if received_qty + received_now > ordered_qty:
+            return f"Cannot receive more than ordered. Ordered={ordered_qty}, already received={received_qty}", 400
+
+        # 2) Update supplier_order_line
+        cur.execute("""
+            UPDATE supplier_order_line
+            SET ReceivedQty = COALESCE(ReceivedQty,0) + %s
+            WHERE OrderID=%s AND LineNumber=%s
+        """, (received_now, order_id, line_number))
+
+        # 3) Update product stock
+        cur.execute("""
+            UPDATE product
+            SET StockQty = COALESCE(StockQty,0) + %s
+            WHERE ProductID=%s
+        """, (received_now, product_id))
+
+        # 4) Log inventory adjustment
+        reason_text = f"Supplier order #{order_id} received line {line_number}"
+        cur.execute("""
+            INSERT INTO inventory_adjustment (ProductID, DateTime, AdjustQty, Reason, EmployeeID)
+            VALUES (%s, NOW(), %s, %s, %s)
+        """, (product_id, received_now, reason_text, employee_id))
+
+        # 5) Update supplier_order status
+        cur.execute("""
+            SELECT SUM(OrderedQty) AS total_ordered,
+                   SUM(COALESCE(ReceivedQty,0)) AS total_received
+            FROM supplier_order_line
+            WHERE OrderID=%s
+        """, (order_id,))
+        sums = cur.fetchone() or {}
+
+        total_ordered = sums["total_ordered"] or 0
+        total_received = sums["total_received"] or 0
+
+        if total_received == 0:
+            new_status = "PENDING"
+        elif total_received < total_ordered:
+            new_status = "PARTIAL"
+        else:
+            new_status = "RECEIVED"
+
+        cur.execute("UPDATE supplier_order SET Status=%s WHERE OrderID=%s", (new_status, order_id))
+
+        db.commit()
+        return redirect(url_for("purchasing_order_details", order_id=order_id))
+
+    except Exception as e:
+        db.rollback()
+        return f"Receive error: {e}", 500
+    finally:
+        cur.close()
+        db.close()
+
+
+from datetime import date, timedelta
+import mysql.connector
+
+@app.route("/reports")
+def reports():
+    report = request.args.get("r", "daily_sales")  # which report to show
+
+    db = get_db()
+    cur = db.cursor(dictionary=True)
+
+    title = ""
+    columns = []
+    rows = []
+
+    try:
+        # -------- Report A: Daily Sales Summary (like your view) --------
+        if report == "daily_sales":
+            title = "Daily Sales Summary"
+            cur.execute("""
+                SELECT DATE(TransactionDateTime) AS SalesDate,
+                       SUM(TotalAmount)          AS TotalSales,
+                       COUNT(*)                  AS NumTransactions
+                FROM `transaction`
+                WHERE Status IN ('COMPLETED','Completed','COMPLETED ')
+                GROUP BY DATE(TransactionDateTime)
+                ORDER BY SalesDate DESC
+            """)
+            rows = cur.fetchall()
+
+        # -------- Report B: Sales Lines (detailed output) --------
+        elif report == "sales_lines":
+            title = "Sales Lines Details"
+            cur.execute("""
+                SELECT tl.TransactionID, tl.LineNumber,
+                       p.Name AS ProductName,
+                       tl.Quantity, tl.UnitPrice, tl.LineSubtotal,
+                       t.TransactionDateTime
+                FROM transaction_line tl
+                JOIN `transaction` t ON t.TransactionID = tl.TransactionID
+                JOIN product p ON p.ProductID = tl.ProductID
+                ORDER BY t.TransactionDateTime DESC, tl.TransactionID DESC, tl.LineNumber ASC
+                LIMIT 200
+            """)
+            rows = cur.fetchall()
+
+        # -------- Report C: Low Stock --------
+        elif report == "low_stock":
+            title = "Low Stock Items"
+            cur.execute("""
+                SELECT ProductID, Name, Category, StockQty, ReorderLevel, Status
+                FROM product
+                WHERE ReorderLevel IS NOT NULL AND StockQty <= ReorderLevel
+                ORDER BY StockQty ASC
+            """)
+            rows = cur.fetchall()
+
+        # -------- Report D: Purchasing Orders Summary --------
+        elif report == "purchasing_orders":
+            title = "Supplier Orders Summary"
+            cur.execute("""
+                SELECT so.OrderID, s.Name AS SupplierName,
+                       so.OrderDate, so.ExpectedDeliveryDate,
+                       so.Status, so.TotalAmount
+                FROM supplier_order so
+                JOIN supplier s ON s.SupplierID = so.SupplierID
+                ORDER BY so.OrderID DESC
+            """)
+            rows = cur.fetchall()
+
+        # -------- Report E: Inventory Adjustments (audit trail) --------
+        elif report == "inventory_adjustments":
+            title = "Inventory Adjustments"
+            cur.execute("""
+                SELECT ia.AdjustmentID, ia.DateTime,
+                       p.Name AS ProductName,
+                       ia.AdjustQty, ia.Reason,
+                       e.FullName AS EmployeeName
+                FROM inventory_adjustment ia
+                JOIN product p ON p.ProductID = ia.ProductID
+                LEFT JOIN employee e ON e.EmployeeID = ia.EmployeeID
+                ORDER BY ia.DateTime DESC
+                LIMIT 200
+            """)
+            rows = cur.fetchall()
+            
+        else:
+            title = "Daily Sales Summary"
+            report = "daily_sales"
+            rows = []
+
+        # columns for table header
+        columns = list(rows[0].keys()) if rows else []
+
+    finally:
+        cur.close()
+        db.close()
+
+    return render_template(
+        "reports.html",
+        active_page="reports",
+        report=report,
+        title=title,
+        columns=columns,
+        rows=rows
+    )
+# ---------------- Run the app ---------------- #
+if __name__ == "__main__":
+    app.run(debug=True)

@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2 style="color:#facc15;">Transaction Details</h2>
+
+<div class="card">
+    <p><strong>Transaction ID:</strong> {{ sale.TransactionID }}</p>
+    <p><strong>Date:</strong> {{ sale.TransactionDateTime }}</p>
+    <p><strong>Customer:</strong> {{ sale.CustomerName }}</p>
+    <p><strong>Cashier:</strong> {{ sale.CashierName }}</p>
+    <p><strong>Payment Method:</strong> {{ sale.PaymentMethod }}</p>
+    <p><strong>Status:</strong> {{ sale.Status }}</p>
+    <p><strong>Total:</strong> {{ sale.TotalAmount }}</p>
+</div>
+
+<h3 style="margin-top:20px;">Items</h3>
+
+<table class="styled-table">
+    <thead>
+        <tr>
+            <th>Product</th>
+            <th>Qty</th>
+            <th>Unit Price</th>
+            <th>Subtotal</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for item in items %}
+        <tr>
+            <td>{{ item.ProductName }}</td>
+            <td>{{ item.Quantity }}</td>
+            <td>{{ item.UnitPrice }}</td>
+            <td>{{ item.LineSubtotal }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<a href="{{ url_for('sales') }}" class="btn" style="margin-top:20px;">
+    ← Back to Sales
+</a>
+{% endblock %}

@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h2>Inventory</h2>
+<p class="text-muted">View stock levels and adjust stock with a reason.</p>
+
+<div style="margin: 12px 0 18px;">
+  <a href="{{ url_for('inventory') }}" class="btn btn-dark-yellow btn-sm">Refresh</a>
+</div>
+
+<div class="table-wrapper">
+  <table class="table table-striped table-hover table-sm align-middle">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Name</th>
+        <th>Category</th>
+        <th>Stock</th>
+        <th>Reorder</th>
+        <th>Status</th>
+        <th style="width: 180px;">Actions</th>
+      </tr>
+    </thead>
+
+    <tbody>
+    {% for p in products %}
+      <tr>
+        <td>{{ p[0] }}</td>
+        <td>{{ p[1] }}</td>
+        <td>{{ p[2] }}</td>
+        <td>{{ p[3] }}</td>
+        <td>{{ p[4] }}</td>
+        <td>{{ p[5] }}</td>
+        <td>
+          <a href="{{ url_for('adjust_stock', product_id=p[0]) }}" class="btn btn-dark-yellow btn-sm">
+            Adjust
+          </a>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}

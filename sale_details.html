@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Login{% endblock %}
+{% block content %}
+
+<div class="form-card" style="max-width:520px;margin:40px auto;">
+  <h1 style="margin:0 0 8px;">Employee Login</h1>
+  <p style="margin:0 0 18px; opacity:.85;">Sign in to access the system.</p>
+
+  {% if error %}
+    <div style="padding:10px 12px;border-radius:12px;border:1px solid rgba(255,70,70,0.5);background:rgba(255,70,70,0.12);color:#ffd6d6;margin-bottom:14px;">
+      {{ error }}
+    </div>
+  {% endif %}
+
+  <form method="POST" action="{{ url_for('login', next=request.args.get('next')) }}">
+    <div class="form-group">
+      <label class="form-label">Username</label>
+      <input class="form-control" type="text" name="username" autocomplete="username" required>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Password</label>
+      <input class="form-control" type="password" name="password" autocomplete="current-password" required>
+    </div>
+
+    <div style="display:flex;gap:10px;align-items:center;justify-content:flex-end;margin-top:14px;">
+      <button class="btn btn-primary" type="submit">Login</button>
+    </div>
+  </form>
+</div>
+
+{% endblock %}

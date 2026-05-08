@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Cashier Dashboard{% endblock %}
+{% block content %}
+
+<h1 style="margin-top:0;">Cashier Dashboard</h1>
+<p style="margin-top:-6px; opacity:.85;">
+  Welcome, {{ session.get('full_name') }}. You can create sales transactions and manage customers.
+</p>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-top:18px;">
+  <a class="card" style="text-decoration:none;" href="{{ url_for('new_sale') }}">
+    <h3 style="margin:0 0 6px;">POS / New Sale</h3>
+    <p style="margin:0;opacity:.85;">Create a new transaction and add items.</p>
+  </a>
+
+  <a class="card" style="text-decoration:none;" href="{{ url_for('sales') }}">
+    <h3 style="margin:0 0 6px;">Sales History</h3>
+    <p style="margin:0;opacity:.85;">View your past transactions and their details.</p>
+  </a>
+
+  <a class="card" style="text-decoration:none;" href="{{ url_for('customers') }}">
+    <h3 style="margin:0 0 6px;">Customers</h3>
+    <p style="margin:0;opacity:.85;">Add / view / edit customers.</p>
+  </a>
+</div>
+
+{% endblock %}
